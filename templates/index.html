@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Welcome to ResumeMaestro </title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index_css.css') }}">
+</head>
+
+<body>
+
+    <div class="logo-container">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Resume Analyzer and Ranker Logo" class="logo">
+    </div>
+
+    <h1>Welcome to ResumeMaestro </h1>
+
+    <p>
+        This application for managing resumes and job descriptions allows for the automation of the recruitment process.
+        It extracts the essential information from the resumes, such as the contact details, experience, skills, and
+        location of the candidates.
+        The application then compares these profiles to the job requirements and provides a ranking of the best
+        candidates for each position.
+        The results are stored in a MongoDB database, allowing for easy consultation and update. Furthermore, the
+        application includes
+        registration and login functionalities for users, ensuring secure data management.
+    </p>
+
+    <p>
+        Cette application de gestion de CV et de description de postes permet d'automatiser le processus de recrutement.
+        Elle extrait les informations essentielles des CV, comme les coordonnées, l'expérience, les compétences et la
+        localisation des candidats.
+        L'application compare ensuite ces profils aux exigences des postes et fournit un classement des meilleurs
+        candidats pour chaque offre.
+        Les résultats sont stockés dans une base de données MongoDB, permettant une consultation et une mise à jour
+        faciles. De plus,
+        l'application comprend des fonctionnalités d'inscription et de connexion pour les utilisateurs, assurant une
+        gestion sécurisée
+        des données.
+    </p>
+
+    <a href="{{ url_for('signup') }}" class="signup">Sign Up</a> |
+    <a href="{{ url_for('login') }}" class="login">Login</a>
+</body>
+
+</html>

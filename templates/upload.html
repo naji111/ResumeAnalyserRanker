@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Upload Resumes and Job Descriptions</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/upload_css.css') }}">
+</head>
+</head>
+
+<body>
+    <h1>Upload Resumes and Job Descriptions</h1>
+    <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
+        <div>
+            <label for="resumes">Select Resumes:</label>
+            <input type="file" id="resumes" name="resumes" multiple required>
+        </div>
+        <div>
+            <label for="job_descriptions">Select Job Descriptions:</label>
+            <input type="file" id="job_descriptions" name="job_descriptions" multiple required>
+        </div>
+        <button type="submit">Upload</button>
+    </form>
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <ul>
+        {% for message in messages %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+</body>
+
+</html>

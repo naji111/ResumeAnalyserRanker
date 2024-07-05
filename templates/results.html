@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/results_css.css') }}">
+</head>
+
+<body>
+    <h1>Results</h1>
+    <form action="{{ url_for('results') }}" method="POST">
+        <div>
+            <label for="jd_select">Select Job Description:</label>
+            <select id="jd_select" name="jd_select" onchange="this.form.submit()">
+                <option value="">--Select--</option>
+                {% for jd in jd_names %}
+                <option value="{{ jd }}" {% if jd==request.form.jd_select %}selected{% endif %}>{{ jd }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+
+    {% if top_resumes %}
+    <h2>Top Resumes for {{ request.form.jd_select }}</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Similarity Score</th>
+                <th>Candidate's Name</th>
+                <th>Phone No.</th>
+                <th>Email ID</th>
+                <th>Skills</th>
+                <th>Location</th>
+                <th>Experience</th>
+                <th>Company Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for resume in top_resumes %}
+            <tr>
+                <td>{{ resume[request.form.jd_select] }}%</td>
+                <td>{{ resume["Candidate's Name"] }}</td>
+                <td>{{ resume["Phone No."] | join(', ') }}</td>
+                <td>{{ resume["E-Mail ID"] | join(', ') }}</td>
+                <td>{{ resume['Skills'] | join(', ') }}</td>
+                <td>{{ resume['Location'] | join(', ') }}</td>
+                <td>{{ resume['Experience'] }}</td>
+                <td>{{ resume['Company Name'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+
+
+
+    <h2>Word Cloud for the First Resume</h2>
+
+    {% if wordcloud_image_path %}
+    <div class="wordcloud-container">
+        <img src="{{ url_for('static', filename='wordcloud.png') }}" alt="Word Cloud">
+    </div>
+    {% else %}
+
+    <p>No word cloud available.</p>
+    {% endif %}
+
+    {% endif %}
+
+    <nav>
+        <ul>
+            <li><a href="{{ url_for('upload') }}">Upload More Resumes</a></li>
+            <li><a href="{{ url_for('logout') }}">Logout</a></li>
+        </ul>
+    </nav>
+</body>
+
+</html>
