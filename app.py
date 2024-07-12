@@ -33,9 +33,13 @@ nltk.download('words')
 from nltk.corpus import wordnet
 nltk.download('wordnet')
 from sklearn.decomposition import TruncatedSVD
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 from nltk import sent_tokenize
+import textract
+from werkzeug.datastructures import FileStorage
+from werkzeug.utils import secure_filename
+from bson.objectid import ObjectId
 
 
 
@@ -44,6 +48,7 @@ from nltk import sent_tokenize
 app = Flask(__name__)
 
 app.secret_key = 'MySecretKey12345'
+
 
 
 
@@ -120,88 +125,108 @@ def verify_password(stored_password, provided_password):
 
 
 
-# Fonction d'extraction de PDF
-def pdf_extractor(file_content):
+# Fonctions d’extraction de texte à partir d’un fichier PDF
+def pdf_extractor(contenu_fichier):
     """
     Extrait le contenu textuel d'un fichier PDF fourni.
 
     Args:
-        file_content (bytes): Contenu binaire brut du fichier PDF.
+        contenu_fichier (bytes): Contenu binaire brut du fichier PDF.
 
     Returns:
         str: Contenu textuel extrait du PDF, ou une chaîne vide si l'extraction échoue.
     """
 
     # Création d'un tampon de chaîne pour stocker le texte extrait
-    output = io.StringIO()
+    tampon_texte = io.StringIO()
 
     # Gestionnaire de ressources pour gérer les ressources PDF
-    rsrcmgr = PDFResourceManager()
+    gestionnaire_ressources = PDFResourceManager()
 
     # Convertisseur de texte en appareil pour écrire le texte extrait dans le tampon de chaîne
-    device = TextConverter(rsrcmgr, output, laparams=LAParams())
+    convertisseur_texte = TextConverter(gestionnaire_ressources, tampon_texte, laparams=LAParams())
 
     # Interpréteur de page PDF pour traiter chaque page du PDF
-    interpreter = PDFPageInterpreter(rsrcmgr, device)
+    interpreteur_page = PDFPageInterpreter(gestionnaire_ressources, convertisseur_texte)
 
     try:
         # Itérer sur toutes les pages du PDF
-        for page in PDFPage.get_pages(io.BytesIO(file_content), caching=True, check_extractable=True):
-            interpreter.process_page(page)  # Traiter la page actuelle
+        for page in PDFPage.get_pages(io.BytesIO(contenu_fichier), caching=True, check_extractable=True):
+            interpreteur_page.process_page(page)  # Traiter la page actuelle
 
     except Exception as e:
         print(f"Erreur d'extraction du texte du PDF : {e}")
         return ""  # Retourner une chaîne vide en cas d'erreur
 
     # Récupérer le contenu textuel extrait du tampon de chaîne
-    text = output.getvalue()
+    texte_extrait = tampon_texte.getvalue()
 
     # Fermer le tampon de chaîne (facultatif, car le gestionnaire de contexte gère la fermeture)
-    output.close()
+    tampon_texte.close()
 
-    return text
-
-
+    return texte_extrait
 
 
-# Fonction pour lire des fichiers
-def read_files(file_path):
+
+
+
+
+def read_files(file_objects):
     """
-    Lit et extrait le contenu textuel d'une liste de fichiers fournis sous forme de chemins d'accès aux fichiers.
+    Lit et extrait le contenu textuel d'une liste d'objets de fichier.
 
     Args:
-        file_path (list): Une liste contenant les chemins d'accès aux fichiers à traiter.
+        file_objects (list): Une liste contenant les objets de fichier à traiter.
 
     Returns:
-        list: Une liste du contenu textuel extrait de chaque fichier, ou une liste vide si aucun fichier n'a été trouvé.
+        list: Une liste de contenus textuels extraits de chaque fichier, ou une liste vide si aucun fichier n'a été trouvé.
     """
+    extracted_texts = []
 
-    textes_extraits = []
-
-    for fichier_televerse in file_path:
+    for file_obj in file_objects:
         try:
-            # Extraire le nom du fichier et lire le contenu du fichier
-            nom_fichier = fichier_televerse.filename
-            contenu_fichier = fichier_televerse.read()
+            # Vérifier le type de l'objet de fichier
+            if isinstance(file_obj, FileStorage):
+                # Pour les nouveaux téléchargements (objets FileStorage)
+                file_name = file_obj.filename
+                file_content = file_obj.read()
+            elif isinstance(file_obj, io.BufferedReader):
+                # Pour les fichiers existants (objets BufferedReader)
+                file_name = file_obj.name
+                file_content = file_obj.read()
+            else:
+                print(f"Type d'objet de fichier non pris en charge : {type(file_obj)}")
+                continue
 
             # Déterminer le type de fichier en fonction de l'extension
-            if nom_fichier.endswith(".pdf"):
-                textes_extraits.append(pdf_extractor(contenu_fichier))
-            elif nom_fichier.endswith(".docx") or nom_fichier.endswith(".doc"):
+            if file_name.lower().endswith(".pdf"):
+                extracted_texts.append(pdf_extractor(file_content))
+            elif file_name.lower().endswith((".docx", ".doc")):
                 # Gérer les formats DOCX et DOC avec textract
-                texte = textract.process(contenu_fichier).decode("utf-8")
-                textes_extraits.append(texte)
-            elif nom_fichier.endswith(".txt"):
+                text = textract.process(file_content).decode("utf-8")
+                extracted_texts.append(text)
+            elif file_name.lower().endswith(".txt"):
                 # Lire le contenu textuel directement pour les fichiers texte brut
-                contenu = contenu_fichier.decode("utf-8")
-                textes_extraits.append(contenu)
+                content = file_content.decode("utf-8")
+                extracted_texts.append(content)
             else:
-                print(f"Format de fichier non pris en charge : {nom_fichier}")
+                print(f"Format de fichier non pris en charge : {file_name}")
+
+            # Réinitialiser le pointeur de fichier
+            if hasattr(file_obj, 'seek'):
+                file_obj.seek(0)
 
         except Exception as e:
-            print(f"Erreur lors du traitement du fichier {nom_fichier} : {e}")
+            print(f"Erreur lors du traitement du fichier {file_name} : {e}")
 
-    return textes_extraits
+    return extracted_texts
+
+
+
+
+
+
+
 
 
 
@@ -629,6 +654,7 @@ def skills(text):
 
 
 # Chargement de compétences prédéfinies
+
 # Charger les compétences à partir d'un fichier Excel
 Skills = pd.read_excel('C:/Users/naji/Desktop/3D smart factory/project/data/Skills.xlsx')
 
@@ -708,6 +734,7 @@ def signup():
 
 
 
+
 # Route pour la connexion
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -733,7 +760,7 @@ def login():
             user = users_collection.find_one({"username": username})
             if user and verify_password(user["password"], password):
                 session['logged_in'] = True
-                session['username'] = username
+                session['username'] = str(user['username'])  # Stocker l'ID de l'utilisateur dans la session
                 return redirect(url_for('upload'))
             else:
                 flash("Incorrect Username/Password")
@@ -746,134 +773,187 @@ def login():
 
 
 
+# Route pour supprimer un fichier
+@app.route('/delete_file', methods=['GET'])
+def delete_file():
+    """
+    Gère la route de suppression d'un fichier (CV ou description d'emploi) téléchargé par un utilisateur.
+
+    Cette fonction :
+    - Récupère le type de fichier à supprimer (CV ou description d'emploi) à partir des paramètres de la requête
+    - Récupère le nom du fichier à supprimer à partir des paramètres de la requête
+    - Récupère le nom d'utilisateur à partir de la session
+    - Si le type de fichier est "resume", elle supprime le fichier de la liste des CV téléchargés pour cet utilisateur dans la session
+    - Si le type de fichier est "job_description", elle supprime le fichier de la liste des descriptions d'emploi téléchargées pour cet utilisateur dans la session
+    - Redirige l'utilisateur vers la page de téléchargement de fichiers
+
+    Returns:
+        La réponse HTTP (une redirection vers la page de téléchargement de fichiers).
+    """
+    file_type = request.args.get('file_type')
+    filename = request.args.get('filename')
+    username = session['username']
+
+    if file_type == 'resume':
+        all_resumes = session.get(f'all_uploaded_resumes_{username}', [])
+        all_resumes.remove(filename)
+        session[f'all_uploaded_resumes_{username}'] = all_resumes
+    elif file_type == 'job_description':
+        all_job_descriptions = session.get(f'all_uploaded_job_descriptions_{username}', [])
+        all_job_descriptions.remove(filename)
+        session[f'all_uploaded_job_descriptions_{username}'] = all_job_descriptions
+
+    return redirect(url_for('upload'))
+
+
+
+
+
+
 
 
 # Route pour télécharger et de traiter des fichiers en même temps
+
+
+# Définir le dossier de téléchargement
+app.config['UPLOAD_FOLDER'] = 'C:/Users/naji/Desktop/3D smart factory/project/previous_uploads'
+
+# Créer le dossier de téléchargement s'il n'existe pas
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
+    """ 
+    Gère la route '/upload' pour le téléchargement et le traitement des CV et des descriptions de poste.
+
+    Cette fonction :
+    
+        - Vérifie si l'utilisateur est connecté, sinon le redirige vers la page de connexion
+        
+        - Traite les requêtes POST pour le téléchargement de fichiers :
+
+            - Récupère les nouveaux CV et descriptions de poste téléchargés
+            - Gère l'utilisation de fichiers existants si sélectionnés
+            - Valide que des CV et des descriptions de poste sont présents
+            - Lit et prétraite les fichiers
+            - Effectue une vectorisation TF-IDF et une réduction de dimensionnalité
+            - Calcule la similarité cosinus entre les CV et les descriptions de poste
+            - Extrait des informations supplémentaires des CV (nom, téléphone, email, compétences, etc.)
+            - Stocke les résultats dans MongoDB
+            - Sauvegarde les nouveaux fichiers téléchargés
+            - Met à jour la liste des fichiers téléchargés dans la session
+        
+        - Gère les requêtes GET en affichant le formulaire de téléchargement
+
+        - Utilise des techniques de traitement du langage naturel et d'apprentissage automatique pour analyser les CV et les descriptions de poste
+        
+        - Gère les erreurs potentielles lors du traitement et de la sauvegarde des fichiers
+    
+    Returns: 
+
+        Pour les requêtes POST : Une redirection vers la page de résultats. 
+        Pour les requêtes GET : Le rendu du template 'upload.html' avec la liste des CV et descriptions de poste déjà téléchargés. 
     """
-    Gère la route d'upload et de traitement des fichiers (CV et descriptions de poste).
-
-    Si l'utilisateur n'est pas connecté, il est redirigé vers la page de connexion.
-
-    Si la méthode de requête est POST (fichiers uploadés), cette fonction :
-    - Récupère les fichiers de CV et de descriptions de poste uploadés
-    - Lit et prétraite le contenu des fichiers
-    - Calcule la similarité cosinus entre les CV et les descriptions de poste
-    - Extrait des informations supplémentaires des CV (numéro de téléphone, email, nom, expérience, compétences, localisation, entreprises)
-    - Stocke les 3 meilleurs CV correspondant à chaque description de poste dans la base de données
-    - Redirige l'utilisateur vers la page des résultats
-
-    Si la méthode de requête est GET (affichage du formulaire d'upload), cette fonction
-    renvoie le template 'upload.html' pour afficher le formulaire d'upload.
-
-    Returns:
-        La réponse HTTP (soit le template 'upload.html', soit une redirection).
-    """
-
+        
+    # Vérification si l'utilisateur est connecté
     if 'logged_in' not in session:
         return redirect(url_for('login'))
     
-
+    username = session['username']
     if request.method == 'POST':
-        
-        resumes = request.files.getlist('resumes')
-        job_descriptions = request.files.getlist('job_descriptions')
+        # Récupération des fichiers uploadés et des options sélectionnées
+        new_resumes = request.files.getlist('resumes')
+        new_job_descriptions = request.files.getlist('job_descriptions')
+        use_existing_resumes = request.form.getlist('use_existing_resumes')
+        use_existing_job_descriptions = request.form.getlist('use_existing_job_descriptions')
 
+        # Initialisation des listes pour stocker les fichiers à traiter
+        resumes_to_process = []
+        job_descriptions_to_process = []
 
+        new_job_description_files = []
+        existing_job_description_filenames = []
 
-        if resumes and job_descriptions:
+        # Collecte des nouveaux CV et descriptions de poste
+        for resume in new_resumes:
+            if resume.filename:
+                resumes_to_process.append(resume)
+        for job_description in new_job_descriptions:
+            if job_description.filename:
+                job_descriptions_to_process.append(job_description)
+                new_job_description_files.append(job_description)
 
-            flash(f"{len(resumes)} resumes and {len(job_descriptions)} job descriptions uploaded successfully.")
+        # Collecte des CV et descriptions de poste existants
+        if use_existing_resumes:
+            resumes_to_process.extend([open(os.path.join(app.config['UPLOAD_FOLDER'], filename), 'rb') for filename in use_existing_resumes])
+        if use_existing_job_descriptions:
+            for filename in use_existing_job_descriptions:
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                job_descriptions_to_process.append(open(file_path, 'rb'))
+                existing_job_description_filenames.append(filename)
+
+        # Validation : s'assurer que des CV et des descriptions de poste sont uploadés
+        if not resumes_to_process or not job_descriptions_to_process:
+            flash("Veuillez uploader à la fois des CV et des descriptions de poste pour continuer!")
+            all_resumes = session.get(f'all_uploaded_resumes_{username}', [])
+            all_job_descriptions = session.get(f'all_uploaded_job_descriptions_{username}', [])
+            return render_template('upload.html', all_resumes=all_resumes, all_job_descriptions=all_job_descriptions)
+
+        # Si les deux types de fichiers sont uploadés, procéder au traitement
+        if resumes_to_process and job_descriptions_to_process:
+            flash(f"{len(resumes_to_process)} CV et {len(job_descriptions_to_process)} descriptions de poste uploadés avec succès.")
             
-            # Lire les CVs
-            resumeTxt = read_files(resumes)
-            # Lire les descriptions de poste
-            jdTxt = read_files(job_descriptions)
-            
-            # Prétraitement des CVs
+            # Lecture et prétraitement des fichiers
+            resumeTxt = read_files(resumes_to_process)
+            jdTxt = read_files(job_descriptions_to_process)
             p_resumeTxt = preprocessing(resumeTxt)
-            # Prétraitement des descriptions de poste
             jds = preprocessing(jdTxt)
-            
-            # Combinaison de CV et de description de poste pour le calcul du TF-IDF et de la similarité cosinus
+
             TXT = p_resumeTxt + jds
-            
-            # Trouver le score TF-IDF de tous les CV et descriptions de poste
-            tv = TfidfVectorizer(max_df=0.8, min_df=1, ngram_range=(1, 3))
+
+            # Vectorisation TF-IDF
+            tv = TfidfVectorizer(max_df=1.0, min_df=1, ngram_range=(1, 3))
             tfidf_wm = tv.fit_transform(TXT)
             tfidf_tokens = tv.get_feature_names_out()
-            
-            # Conversion de la matrice TF-IDF en DataFrame
+
             df_tfidfvect1 = pd.DataFrame(data=tfidf_wm.toarray(), columns=tfidf_tokens)
 
-
-            # Calcul de la similarité cosinus entre les descriptions de poste et les CV pour savoir quel CV convient le mieux à une description de poste
-            # similarity = cosine_similarity(df_tfidfvect1[0:len(resumeTxt)], df_tfidfvect1[len(resumeTxt):])
-            # similarity = (similarity * 100).round(2)
-            # jd_names = [os.path.splitext(uploaded_file.filename)[0] for uploaded_file in job_descriptions]
-            # Data = pd.DataFrame(similarity, columns=jd_names)
-            # t = pd.DataFrame({'Original Resume': resumeTxt})
-            # dt = pd.concat([Data, t], axis=1)
-
-            
-
-                        # **Ajout de la réduction de dimensionnalité**
+            # Réduction de dimensionnalité
             dimrec = TruncatedSVD(n_components=30, n_iter=7, random_state=42)
             transformed = dimrec.fit_transform(df_tfidfvect1)
-            
-            # Conversion du vecteur transformé en liste
+
             vl = transformed.tolist()
-            
-            # Conversion de la liste en DataFrame
             fr = pd.DataFrame(vl)
-            
-            # Calcul de la similarité cosinus entre les descriptions de poste et les CV pour savoir quel CV convient le mieux à une description de poste
+
+            # Calcul de la similarité cosinus
             similarity = cosine_similarity(fr[0:len(resumeTxt)], fr[len(resumeTxt):])
             similarity = (similarity * 100).round(2)
-            jd_names = [os.path.splitext(uploaded_file.filename)[0] for uploaded_file in job_descriptions]
+            
+            # Préparation des noms de fichiers pour les descriptions de poste
+            jd_names = ([os.path.splitext(file.filename)[0] for file in new_job_description_files] + [os.path.splitext(filename)[0] for filename in existing_job_description_filenames])
+            jd_names = [name for name in jd_names if name]
+
+            # Création du DataFrame avec les résultats
             Data = pd.DataFrame(similarity, columns=jd_names)
             t = pd.DataFrame({'Original Resume': resumeTxt})
             dt = pd.concat([Data, t], axis=1)
 
-
-
-            # Appel de la fonction number pour obtenir la liste des numéros des candidats
+            # Extraction d'informations supplémentaires des CV
             dt['Phone No.'] = dt['Original Resume'].apply(lambda x: number(x))
-
-            # Appel de la fonction email_ID pour obtenir la liste des emails des candidats
             dt['E-Mail ID'] = dt['Original Resume'].apply(lambda x: email_ID(x))
-
-            # Appel de la fonction rm_number pour supprimer le numéro de téléphone
             dt['Original'] = dt['Original Resume'].apply(lambda x: rm_number(x))
-
-            # CV avec e-mails et numéros supprimés 
             dt['Original'] = dt['Original'].apply(lambda x: rm_email(x))
-
-            # Appel de la fonction person_name pour extraire le nom d'un candidat
             dt['Candidate\'s Name'] = dt['Original'].apply(lambda x: person_name(x))
-
-            # Appel de la fonction pour extraire l'année d'expérience du candidat
             dt['Experience'] = dt['Original'].apply(lambda x: extract_years_of_experience(x))
-
-            # Appeler la fonction skills pour extraire les compétences d'un candidat
             dt['Skills'] = dt['Original'].apply(lambda x: skills(x))
-
-            # Appel de la fonction location pour extraire la localisation d'un candidat
             dt['Location'] = dt['Original'].apply(lambda x: location(x))
-
-            # Appel de la fonction CompanyName pour extraire les anciennes sociétés d'un candidat
             dt['Company Name'] = dt['Original Resume'].apply(lambda x: CompanyName(x))
 
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            print(dt[['Candidate\'s Name', 'Phone No.', 'E-Mail ID', 'Skills', 'Experience', 'Location', 'Company Name']])  
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-
-
-
+            # Stockage des résultats dans MongoDB
             for jd in jd_names:
-                collection = db[jd]
-                # Effacer la collection existante avant d'insérer de nouvelles données
+                collection = db[f"{username}_{jd}"]
                 collection.delete_many({})
 
                 top_resumes = dt[[jd, 'Candidate\'s Name', 'Phone No.', 'E-Mail ID', 'Skills', 'Experience', 'Location', 'Company Name', 'Original Resume']].sort_values(by=jd, ascending=False).head(3)
@@ -882,11 +962,51 @@ def upload():
 
             session['jd_names'] = jd_names
 
+            # Sauvegarde des nouveaux fichiers uploadés
+            for file in new_resumes + new_job_descriptions:
+                if file:
+                    try:
+                        filename = file.filename
+                        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+                    except Exception as e:
+                        flash(f"Erreur lors de la sauvegarde du fichier : {e}")
 
-            return redirect(url_for('results'))
+            # Fermeture des fichiers ouverts
+            for file in job_descriptions_to_process:
+                if isinstance(file, io.BufferedReader):
+                    file.close()
+
+        # Mise à jour de la liste des fichiers uploadés dans la session
+        all_resumes = session.get(f'all_uploaded_resumes_{username}', [])
+        all_job_descriptions = session.get(f'all_uploaded_job_descriptions_{username}', [])
+
+        new_resumes = [file.filename for file in new_resumes] if new_resumes else []
+        new_resumes = [resume for resume in new_resumes if resume not in all_resumes]
+        all_resumes.extend(new_resumes)
+        all_resumes = list(set(all_resumes))
+        all_resumes = [resume for resume in all_resumes if resume]
+
+        new_job_descriptions = [file.filename for file in new_job_descriptions] if new_job_descriptions else []
+        new_job_descriptions = [jd for jd in new_job_descriptions if jd not in all_job_descriptions]
+        all_job_descriptions.extend(new_job_descriptions)
+        all_job_descriptions = list(set(all_job_descriptions))
+        all_job_descriptions = [jd for jd in all_job_descriptions if jd]
+
+        session[f'all_uploaded_resumes_{username}'] = all_resumes
+        session[f'all_uploaded_job_descriptions_{username}'] = all_job_descriptions
+
+        return redirect(url_for('results'))
+    
+    # Si la méthode est GET, afficher le formulaire d'upload
+    all_resumes = session.get(f'all_uploaded_resumes_{username}', [])
+    all_job_descriptions = session.get(f'all_uploaded_job_descriptions_{username}', [])
+    
+    return render_template('upload.html', all_resumes=all_resumes, all_job_descriptions=all_job_descriptions)
 
 
-    return render_template('upload.html')
+
+
+
 
 
 
@@ -898,50 +1018,53 @@ def upload():
 @app.route('/results', methods=['GET', 'POST'])
 def results():
     """
-    Gère la route d'affichage des résultats de l'appariement entre les CV et les descriptions de poste.
-
-    Si l'utilisateur n'est pas connecté, il est redirigé vers la page de connexion.
+    Gère la route '/results' pour afficher les résultats de l'analyse des CV.
 
     Cette fonction :
-    - Récupère la liste des descriptions de poste stockées dans la session
-    - Récupère la description de poste sélectionnée par l'utilisateur dans le formulaire
-    - Récupère les 3 meilleurs CV correspondant à la description de poste sélectionnée depuis la base de données
-    - Génère une image de nuage de mots pour le premier CV
-    - Renvoie le template 'results.html' avec les données nécessaires pour l'affichage des résultats
 
-    Returns:
-        La réponse HTTP (le template 'results.html').
+        - Vérifie si l'utilisateur est connecté, sinon le redirige vers la page de connexion
+        - Récupère le nom d'utilisateur et les noms des descriptions de poste depuis la session
+        - Traite la sélection d'une description de poste spécifique via un formulaire
+        - Si une description de poste est sélectionnée :
+            - Récupère les meilleurs CV correspondants depuis la collection MongoDB appropriée
+            - Génère un nuage de mots à partir du texte du premier CV si disponible
+            - Sauvegarde l'image du nuage de mots dans un fichier statique
+        - Affiche la page de résultats avec :
+            - La liste des descriptions de poste disponibles
+            - Les meilleurs CV correspondants à la description sélectionnée
+            - L'image du nuage de mots généré
+
+    Cette fonction utilise la bibliothèque WordCloud pour générer une représentation visuelle des mots les plus fréquents dans le CV le mieux classé.
+
+    Returns: Le rendu du template 'results.html' avec les données nécessaires pour afficher les résultats de l'analyse. 
     """
-    # Vérifie si l'utilisateur est connecté, sinon le redirige vers la page de connexion
+
     if 'logged_in' not in session:
         return redirect(url_for('login'))
-    
 
-    # Récupère la liste des descriptions de poste stockées dans la session
+    username = session['username']
     jd_names = session.get('jd_names', [])
 
-    # Récupère la description de poste sélectionnée par l'utilisateur dans le formulaire
     selected_jd = request.form.get('jd_select')
 
-    # Initialise les variables pour stocker les résultats et le chemin de l'image du nuage de mots
     top_resumes = None
     wordcloud_image_path = None
 
-    # Si une description de poste est sélectionnée
     if selected_jd:
-        # Récupère les 3 meilleurs CV correspondant à la description de poste sélectionnée depuis la base de données
-        collection = db[selected_jd]
+        collection = db[f"{username}_{selected_jd}"]
         top_resumes = list(collection.find())
-
-        # Génère et enregistre l'image du nuage de mots pour le premier CV
+        
         if top_resumes and 'Original Resume' in top_resumes[0]:
+            # Si des résumés ont été trouvés et que le premier résumé contient le champ 'Original Resume'
             resume_text = top_resumes[0]['Original Resume']
-            wordcloud = WordCloud(width=800, height=500, background_color='white', min_font_size=10).generate(resume_text)
+            top_resume_clean = preprocessing([resume_text])
+            top_resume_clean = top_resume_clean[0]  # Récupérer le premier élément de la liste
+            wordcloud = WordCloud(width=800, height=500, background_color='white', min_font_size=10).generate(top_resume_clean)
             wordcloud_image_path = os.path.join('static', 'wordcloud.png')
             wordcloud.to_file(wordcloud_image_path)
 
-    # Renvoie le template 'results.html' avec les données nécessaires pour l'affichage des résultats
     return render_template('results.html', jd_names=jd_names, top_resumes=top_resumes, selected_jd=selected_jd, wordcloud_image_path=wordcloud_image_path)
+
 
 
 
